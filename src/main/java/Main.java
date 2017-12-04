@@ -1,5 +1,6 @@
 import Cralwer.Crawler;
 import org.apache.log4j.BasicConfigurator;
+import org.apache.log4j.LogManager;
 
 /**
  * Created by chaoqunhuang on 11/29/17.
