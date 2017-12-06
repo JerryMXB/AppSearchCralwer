@@ -16,6 +16,7 @@ public class App {
     Set<String> functions;
     Set<String> relatedApps;
     String url;
+    String description;
     double rating;
 
     @DynamoDBHashKey(attributeName = "appUrl")
@@ -48,4 +49,7 @@ public class App {
     public double getRating() { return rating; }
     public void setRating(double rating) { this.rating = rating; }
 
+    @DynamoDBAttribute(attributeName = "description")
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
 }

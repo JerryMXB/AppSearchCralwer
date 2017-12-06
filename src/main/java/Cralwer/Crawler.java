@@ -1,36 +1,38 @@
 package Cralwer;
 
+import AWSES.ElasticSearch;
 import Bean.App;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDB;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClientBuilder;
 import com.amazonaws.services.dynamodbv2.datamodeling.DynamoDBMapper;
-import lombok.extern.log4j.Log4j;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 import java.io.IOException;
+
 import java.util.HashSet;
 import java.util.Set;
 
 
 /**
+ *
  * Created by chaoqunhuang on 11/29/17.
  */
-@Log4j
 public class Crawler {
     static final char[] navs = {'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S',
             'T', 'U', 'V', 'W', 'X', 'Y', 'Z'};
     static final String nav = "https://itunes.apple.com/us/genre/ios-productivity/id6007?mt=8";
 
     private final DynamoDBMapper mapper;
-
     public Crawler() {
-        AmazonDynamoDB client = AmazonDynamoDBClientBuilder.standard().withRegion(Regions.US_EAST_1).withCredentials(new ProfileCredentialsProvider("AppCrawler")).build();
-        this.mapper = new DynamoDBMapper(client);
+        AmazonDynamoDB dynamoClient = AmazonDynamoDBClientBuilder.standard().withRegion(Regions.US_EAST_1).withCredentials(new ProfileCredentialsProvider("AppCrawler")).build();
+        this.mapper = new DynamoDBMapper(dynamoClient);
     }
 
     public void getNavLinks() {
@@ -56,19 +58,17 @@ public class Crawler {
 
             // Get The app links
             for (Element e : hrefs) {
-                log.info(e.text() + e.attr("href"));
 
                 // Ignore Next link
                 if ("Next".equals(e.text())) {
                     Document pageOfApps = Jsoup.connect(e.attr("href")).get();
                     Elements appLinks = pageOfApps.select("div[id=\"selectedcontent\"]").get(0).select("a");
                     for (Element a : appLinks) {
-                        log.info(a.attr("href") + " " + a.text());
                         try {
-                            log.info("Sleep for 1 seconds");
+                            System.out.println("Sleep for 1 second");
                             Thread.sleep(1000);
                         } catch (InterruptedException ie) {
-                            log.error(ie);
+                            System.out.println(ie.getMessage());
                         }
                         processPage(a.attr("href"));
                     }
@@ -76,11 +76,14 @@ public class Crawler {
             }
         } catch (IOException ioe) {
             System.out.println(ioe.getMessage());
-            log.error(ioe.getMessage());
+            System.out.println(ioe.getMessage());
         }
     }
 
-
+    /**
+     * Fetch app from given app link
+     * @param url_link App link
+     */
     private void processPage(String url_link) {
         try {
             // Fetch app page
@@ -97,6 +100,7 @@ public class Crawler {
 
             // Fetch description
             Elements functions = doc.select("p[itemprop=\"description\"]");
+            app.setDescription(functions.get(0).text());
 
             // Extract functionality
             String description = functions.get(0).html();
@@ -108,6 +112,8 @@ public class Crawler {
                     bullets.add(s);
                 }
             }
+            app.setFunctions(bullets);
+            bullets.forEach(s -> System.out.println(s));
 
             // Fetch related apps
             Elements relatedAppsElements = doc.select("a[class=\"artwork-link\"]");
@@ -121,7 +127,6 @@ public class Crawler {
                 relatedApps.add(e.select("a[class=\"artwork-link\"]").get(0).attr("href"));
                 index++;
             }
-
             app.setRelatedApps(relatedApps);
 
             // Fetch ratings
@@ -129,24 +134,39 @@ public class Crawler {
                     doc.select("span[itemprop=\"ratingValue\"]").get(0).text() : "-1");
             app.setRating(rating);
 
-            app.setFunctions(bullets);
             if (!app.getFunctions().isEmpty() && !app.getRelatedApps().isEmpty()) {
-                log.info("Save app into dynamodb");
-                mapper.save(app);
+                System.out.println("Save app into dynamodb");
+                saveToDynamoDBandElasticSearch(app);
                 try {
-                    log.info("Sleep for 5 seconds");
+                    System.out.println("Sleep for 5 seconds");
                     Thread.sleep(5000);
                 } catch (InterruptedException e) {
-                    log.error(e);
+                    System.out.println(e.getMessage());
                 }
             }
-            bullets.forEach(s -> log.info(s));
         } catch (IOException ioe) {
             System.out.println(ioe.getMessage());
-            log.error(ioe.getMessage());
+            System.out.println(ioe.getMessage());
         }
     }
 
+    /**
+     * Save app to dynamoDB and Elastic Search
+     * @param app App crawled to save
+     */
+    private void saveToDynamoDBandElasticSearch(App app) {
+        mapper.save(app);
 
+        // instance a json mapper
+        ObjectMapper jacksonMapper = new ObjectMapper(); // create once, reuse
+        // generate json
+        try {
+            String json = jacksonMapper.writeValueAsString(app);
+            ElasticSearch.indexToElasticSearch(json);
+        } catch (IOException ioe) {
+            System.out.println(ioe.getMessage());
+        }
+
+    }
 
 }
